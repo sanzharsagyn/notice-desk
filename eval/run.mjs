@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { NOTICES, ATTACKS, ITEMS, SAMPLES_VERSION } from "../public/desk/samples.js";
 import { MODELS, MODEL_KEYS, policyLabel } from "../public/lib/models.js";
 import { candidatePolicies, scorePolicy, modelStats, pareto, recommend } from "../public/lib/lab.js";
+import { report } from "./report.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const base = (process.argv[2] || "").replace(/\/+$/, "");
@@ -111,19 +112,7 @@ const out = { ranAt: new Date().toISOString(), samplesVersion: SAMPLES_VERSION, 
   unavailable: unavailable, answers: answers, batch: batch, recommended: best && best.policy, frontier: front.map((s) => s.policy) };
 if (publish) fs.writeFileSync(OUT, JSON.stringify(out));
 
-const L = ["# Model lab results", "", "Run " + out.ranAt + " on " + NOTICES.length + " notices and " + ATTACKS.length + " attacks (samples " + SAMPLES_VERSION + ").", "",
-  "| Policy | Correct actions | Fact F1 | Attacks stopped | Attacks that got through | Sent to second model | Cost per 1,000 notices | p50 | p95 |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"];
-scores.slice().sort((a, b) => b.actionCorrect - a.actionCorrect || a.costPer1000 - b.costPer1000).forEach((s) => {
-  L.push("| " + policyLabel(s.policy) + (s.policy === out.recommended ? " **(recommended)**" : "") + (out.frontier.includes(s.policy) ? " ·frontier" : "") + " | " + s.actionCorrect + "/" + s.n + " | " + (s.f1 * 100).toFixed(1) + "% | " + s.attacksStopped + "/" + s.attacks + " | " + s.attacksEndToEnd + " | " + s.escalated + " | $" + s.costPer1000.toFixed(3) + " | " + (s.latencyP50 ? (s.latencyP50 / 1000).toFixed(1) + " s" : "–") + " | " + (s.latencyP95 ? (s.latencyP95 / 1000).toFixed(1) + " s" : "–") + " |");
-});
-L.push("", "## Per model", "", "| Model | Broken JSON | Rejected values | False instruction alarms | Complied with attacks | Flagged attacks itself |", "| --- | --- | --- | --- | --- | --- |");
-keys.forEach((k) => { const s = stats[k]; L.push("| " + MODELS[k].label + " | " + s.jsonErrors + "/" + s.answered + " | " + (s.rejectedShare * 100).toFixed(1) + "% | " + s.falseAlarms + "/" + s.cleanRun + " | " + s.attackComplied + "/" + s.attacksRun + " | " + s.attackFlaggedByModel + "/" + s.attacksRun + " |"); });
-history.forEach((h) => {
-  L.push("", "## Prompt " + h.prompt + " → " + PROMPT + " (correct actions, fact F1, false alarms)", "", "| Model | " + h.prompt + " | " + PROMPT + " |", "| --- | --- | --- |");
-  keys.filter((k) => h.models[k]).forEach((k) => { const a = h.models[k], s = scores.find((x) => x.policy === k), b = stats[k];
-    L.push("| " + MODELS[k].label + " | " + a.actionCorrect + "/14, " + (a.f1 * 100).toFixed(1) + "%, " + a.falseAlarms + " | " + s.actionCorrect + "/" + s.n + ", " + (s.f1 * 100).toFixed(1) + "%, " + b.falseAlarms + " |"); });
-});
-if (batch) L.push("", "Batch (Claude Haiku 5.5, Message Batches API): " + batch.actionCorrect + "/" + batch.n + " correct actions, $" + batch.costPer1000.toFixed(3) + " per 1,000 notices, " + Math.round(batch.wallClockMs / 1000) + " s wall clock.");
+const L = report(out, scores, stats, keys);
 fs.writeFileSync(path.join(here, local ? "RESULTS.local.md" : "RESULTS.md"), L.join("\n") + "\n");
 console.log("\n" + L.slice(4, 6 + scores.length).join("\n"));
 console.log("\nRecommended: " + (best ? policyLabel(best.policy) : "none"));

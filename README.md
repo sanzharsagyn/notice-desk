@@ -66,6 +66,7 @@ npx wrangler deploy                              # the [ai] binding needs no set
 npx wrangler secret put ANTHROPIC_API_KEY
 node eval/run.mjs https://noticedesk.<subdomain>.workers.dev
 npx wrangler deploy                              # publishes eval-results.json
+node eval/rescore.mjs                            # after a rule change: re-score recorded answers, no model calls
 ```
 
 A full run is 190 model calls. Answers are cached, so a re-run only pays for what is missing. On the Workers AI free plan (10,000 Neurons a day) a run fits in one day; if the allowance runs out, the remaining calls fail cleanly and the next day's run fills them in.
