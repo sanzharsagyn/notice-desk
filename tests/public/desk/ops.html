@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Notice Desk Monitoring</title>
+<meta name="description" content="Live monitoring of the notice triage API: notices, model calls by model, escalation rate, batch calls, latency, cost, rejected quotes, flagged instructions and moderator overrides.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/desk/lab.css?v=6">
+<style>
+.head{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.head p{color:var(--muted);max-width:80ch}
+.stack{display:flex;flex-direction:column;gap:12px}
+.label{font:600 11px var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.ico{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;margin-top:1px}
+.ico.ok{background:var(--ok-bg);color:var(--ok)} .ico.crit{background:var(--crit-bg);color:var(--crit)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.tile .v{font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:-.01em}
+.tile .s{font-size:12.5px;color:var(--muted)}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.chart h3{font-size:14.5px}
+.chart .sub{font-size:12.5px;color:var(--muted)}
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.chart svg text{fill:var(--muted);font:11px var(--mono)}
+.chart .bar{fill:var(--s1)}
+.chart .hit{fill:transparent;cursor:default}
+.chart .hit:hover + .bar,.chart .bar.on{opacity:.75}
+.tip{white-space:nowrap;transform:translate(-50%,calc(-100% - 10px))}
+.alerts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+.alert{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;min-width:0}
+.alert .ico{flex:none}
+.alert b{display:block;font-size:14px}
+.alert p{font-size:13px;color:var(--muted)}
+.tbl{overflow-x:auto}
+.tbl table{border-collapse:collapse;font-size:13px;width:100%}
+.tbl th,.tbl td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:right;white-space:nowrap;font-family:var(--mono)}
+.tbl th{font-family:var(--ui);font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.seg button{font:inherit}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="/"><span class="mono">Sanzhar Sagyn</span><span class="sep">/</span><b>Notice Desk · Model Lab</b></a>
+    <nav class="nav" aria-label="Pages"><a href="/">Lab</a><a href="/desk/api.html">API</a><a href="/desk/ops.html" aria-current="page">Monitoring</a><a href="https://github.com/sanzharsagyn/notice-desk" target="_blank" rel="noopener">Code</a></nav>
+  </div>
+</header>
+<main class="wrap">
+  <div class="head">
+    <div class="bh"><h1 style="font-size:30px">Monitoring</h1><p id="sub">Live counters from the API. Only real model calls are counted: cached replays of the sample notices cost nothing and are left out.</p></div>
+    <div class="seg" role="group" aria-label="Period" id="period">
+      <button type="button" data-days="7" aria-pressed="false">7 days</button>
+      <button type="button" data-days="14" aria-pressed="true">14 days</button>
+      <button type="button" data-days="30" aria-pressed="false">30 days</button>
+    </div>
+  </div>
+
+  <section class="tiles" id="tiles" aria-label="Totals for the period"></section>
+  <section class="charts" id="charts" aria-label="Charts"></section>
+
+  <section class="stack" aria-labelledby="al-h">
+    <h2 id="al-h" style="font-size:18px">Checks that would page someone in production</h2>
+    <div class="alerts" id="alerts"></div>
+  </section>
+
+  <details class="card tablewrap"><summary>Show the numbers as a table</summary><div class="tbl" id="tbl" style="margin-top:10px"></div></details>
+
+  <footer class="foot"><p>Counters live in one record per day in Cloudflare KV, written after each model run. Parallel requests can occasionally lose an increment, which is fine for a demo. A production system would use a metrics store with alerting.</p></footer>
+</main>
+<div class="tip" id="tip" hidden></div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var days = 14, data = null;
+  var sum = function (k) { return data.days.reduce(function (a, d) { return a + (d[k] || 0); }, 0); };
+  var pct = function (a, b) { return b ? Math.round(a / b * 1000) / 10 + "%" : "–"; };
+  var usd = function (x) { return "$" + (x < 1 ? x.toFixed(4) : x.toFixed(2)); };
+  var dlabel = function (iso) { var p = iso.split("-"); return (+p[2]) + "." + (+p[1]) + "."; };
+
+  function tiles() {
+    var n = sum("notices"), calls = sum("modelCalls"), lat = sum("latencyMs"), cost = sum("costUsd"), facts = sum("facts"), rej = sum("rejected"), esc_ = sum("escalations"), batch = sum("batchCalls");
+    var dec = sum("decisions"), ov = sum("overrides"), err = sum("errors"), lim = sum("limited"), inj = sum("injections"), rules = sum("rulesOnly");
+    var CL = ["haiku", "sonnet"], h = 0, so = 0, top = {};
+    data.days.forEach(function (d) { Object.keys(d.byModel || {}).forEach(function (k) { if (CL.indexOf(k) >= 0) so += d.byModel[k]; else h += d.byModel[k]; top[k] = (top[k] || 0) + d.byModel[k]; }); });
+    var most = Object.keys(top).sort(function (a, b) { return top[b] - top[a]; })[0];
+    var live = calls - batch;
+    var t = [
+      ["Notices triaged", String(n), rules ? rules + " routed by rules alone" : "every one through a model"],
+      ["Model calls", String(calls), h + " Workers AI · " + so + " Claude · " + batch + " in batches"],
+      ["Escalated", pct(esc_, n), esc_ + " notices sent to the second model" + (most ? " · busiest: " + most : "")],
+      ["Model cost", usd(cost), n ? usd(cost / n) + " per notice" : "no notices yet"],
+      ["Average model time", live ? (lat / live / 1000).toFixed(1) + " s" : "–", "per live call; batches are asynchronous"],
+      ["Quotes rejected", pct(rej, facts + rej), rej + " of " + (facts + rej) + " values the model returned"],
+      ["Instructions flagged", String(inj), "reported, never followed"],
+      ["Moderator overrides", pct(ov, dec), ov + " of " + dec + " decisions differed from the proposal"],
+      ["Failed calls", pct(err, calls + err), err + " errors · " + lim + " rate-limited"],
+    ];
+    $("tiles").innerHTML = t.map(function (x) { return '<div class="tile"><span class="label">' + esc(x[0]) + '</span><span class="v">' + esc(x[1]) + '</span><span class="s">' + esc(x[2]) + "</span></div>"; }).join("");
+  }
+
+  // One series per chart: no legend, the title names it. Bars max 24px, 4px rounded tops, square at the baseline.
+  function bars(title, sub, labels, values, fmt, tickFmt) {
+    var W = 440, H = 190, L = 44, B = 24, T = 8, n = values.length;
+    var max = Math.max.apply(null, values.concat([0]));
+    var step = niceStep(max), top = Math.max(step, Math.ceil(max / step) * step);
+    var bw = (W - L) / n, w = Math.min(24, bw - 2);
+    var y = function (v) { return T + (H - T - B) * (1 - v / top); };
+    var g = "";
+    for (var k = 0; k <= top / step; k++) {
+      var v = k * step, yy = y(v);
+      g += '<line x1="' + L + '" x2="' + W + '" y1="' + yy + '" y2="' + yy + '" stroke="var(--grid)" stroke-width="1"/>';
+      g += '<text x="' + (L - 6) + '" y="' + (yy + 4) + '" text-anchor="end">' + esc(tickFmt(v)) + "</text>";
+    }
+    var every = Math.ceil(n / 6);
+    values.forEach(function (v, i) {
+      var x = L + i * bw + (bw - w) / 2, h = (H - T - B) - (y(v) - T), r = Math.min(4, h);
+      g += '<rect class="hit" x="' + (L + i * bw) + '" y="' + T + '" width="' + bw + '" height="' + (H - T - B) + '" data-tip="' + esc(labels[i] + ": " + fmt(v)) + '"/>';
+      if (v > 0) g += '<path class="bar" d="M' + x + "," + (y(0)) + "V" + (y(v) + r) + "Q" + x + "," + y(v) + " " + (x + r) + "," + y(v) + "H" + (x + w - r) + "Q" + (x + w) + "," + y(v) + " " + (x + w) + "," + (y(v) + r) + "V" + y(0) + 'Z"/>';
+      if (i % every === 0 || (i === n - 1 && (n - 1) % every >= every / 2)) g += '<text x="' + (L + i * bw + bw / 2) + '" y="' + (H - 6) + '" text-anchor="middle">' + esc(labels[i]) + "</text>";
+    });
+    return '<div class="chart"><h3>' + esc(title) + '</h3><span class="sub">' + esc(sub) + '</span><svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + esc(title) + '">' + g + "</svg></div>";
+  }
+  function niceStep(max) {
+    if (max <= 0) return 1;
+    var raw = max / 4, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+  }
+
+  function charts() {
+    var L = data.days.map(function (d) { return dlabel(d.day); });
+    var lat = [0, 0, 0, 0, 0];
+    data.days.forEach(function (d) { (d.latency || []).forEach(function (x, i) { lat[i] += x; }); });
+    var b = data.latencyBuckets.map(function (x) { return x / 1000; });
+    var latL = ["< " + b[0] + " s", b[0] + "–" + b[1] + " s", b[1] + "–" + b[2] + " s", b[2] + "–" + b[3] + " s", "> " + b[3] + " s"];
+    var int = function (v) { return String(Math.round(v)); };
+    $("charts").innerHTML =
+      bars("Notices triaged per day", "Samples the first time, visitors' own notices, evaluation and batch runs", L, data.days.map(function (d) { return d.notices; }), function (v) { return v + (v === 1 ? " notice" : " notices"); }, int) +
+      bars("Model cost per day", "USD, from the token counts the API returns", L, data.days.map(function (d) { return d.costUsd; }), function (v) { return usd(v); }, function (v) { return v ? "$" + (+v.toPrecision(2)) : "0"; }) +
+      bars("Model time per live call", "How many calls fell into each time band", latL, lat, function (v) { return v + (v === 1 ? " call" : " calls"); }, int);
+  }
+
+  function alerts() {
+    var n = sum("notices"), calls = sum("modelCalls"), err = sum("errors"), facts = sum("facts"), rej = sum("rejected"), dec = sum("decisions"), ov = sum("overrides"), esc_ = sum("escalations"), inj = sum("injections");
+    var lat = [0, 0, 0, 0, 0];
+    data.days.forEach(function (d) { (d.latency || []).forEach(function (x, i) { lat[i] += x; }); });
+    var live = calls - sum("batchCalls"), slow = lat[3] + lat[4], todayCalls = data.days[data.days.length - 1].modelCalls;
+    var A = [
+      ["Failed model calls above 5%", calls + err ? err / (calls + err) > 0.05 : false, pct(err, calls + err) + " of calls failed in this period."],
+      ["Rejected quotes above 5%", facts + rej ? rej / (facts + rej) > 0.05 : false, "A rise usually means a prompt or model change broke grounding. " + pct(rej, facts + rej) + " now."],
+      ["Escalation rate above 50%", n >= 10 ? esc_ / n > 0.5 : false, "The cheap model is unsure more often than usual: a sign of model degradation or a new kind of notice. " + pct(esc_, n) + " now."],
+      ["Flagged instructions above 15% of notices", n >= 10 ? inj / n > 0.15 : false, "A burst of notices that try to steer the system can be a coordinated attack. " + inj + " of " + n + " notices."],
+      ["Live calls slower than 8 s above 10%", live ? slow / live > 0.1 : false, slow + " of " + live + " live calls took longer than 8 s."],
+      ["Override rate above 30%", dec >= 20 ? ov / dec > 0.3 : false, dec >= 20 ? pct(ov, dec) + " of decisions overrode the proposal." : "Needs at least 20 decisions to be meaningful; " + dec + " so far."],
+      ["Daily budget above 80%", todayCalls / data.dailyLimit > 0.8, todayCalls + " of " + data.dailyLimit + " model calls used today."],
+    ];
+    $("alerts").innerHTML = A.map(function (a) { return '<div class="alert"><span class="ico ' + (a[1] ? "crit" : "ok") + '">' + (a[1] ? "×" : "✓") + '</span><div><b>' + esc(a[0]) + (a[1] ? " · firing" : " · fine") + "</b><p>" + esc(a[2]) + "</p></div></div>"; }).join("");
+  }
+
+  function table() {
+    var cols = [["Day", function (d) { return d.day; }], ["Notices", function (d) { return d.notices; }], ["Workers AI", function (d) { return Object.keys(d.byModel || {}).filter(function (k) { return k !== "haiku" && k !== "sonnet"; }).reduce(function (a, k) { return a + d.byModel[k]; }, 0); }], ["Claude", function (d) { return (d.byModel.haiku || 0) + (d.byModel.sonnet || 0); }],
+      ["Escalated", function (d) { return d.escalations; }], ["Batch", function (d) { return d.batchCalls; }], ["Rules", function (d) { return d.rulesOnly; }], ["Avg s", function (d) { var l = d.modelCalls - d.batchCalls; return l ? (d.latencyMs / l / 1000).toFixed(1) : "–"; }], ["Cost", function (d) { return usd(d.costUsd); }],
+      ["Facts", function (d) { return d.facts; }], ["Rejected", function (d) { return d.rejected; }], ["Flagged", function (d) { return d.injections; }],
+      ["Decisions", function (d) { return d.decisions; }], ["Overrides", function (d) { return d.overrides; }], ["Errors", function (d) { return d.errors; }], ["Limited", function (d) { return d.limited; }]];
+    $("tbl").innerHTML = "<table><thead><tr>" + cols.map(function (c) { return "<th>" + c[0] + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      data.days.slice().reverse().map(function (d) { return "<tr>" + cols.map(function (c) { return "<td>" + esc(c[1](d)) + "</td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table>";
+  }
+
+  function load() {
+    document.querySelectorAll("#period button").forEach(function (b) { b.setAttribute("aria-pressed", String(+b.dataset.days === days)); });
+    fetch("/api/v1/metrics?days=" + days, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) {
+      data = j;
+      $("sub").textContent = "Live counters from the API for the last " + days + " days (prompt " + j.prompt + "). Only real model calls are counted: cached replays of the sample notices cost nothing and are left out.";
+      tiles(); charts(); alerts(); table();
+    }).catch(function () { $("tiles").innerHTML = '<div class="tile"><span class="label">Metrics</span><span class="s">Could not load the counters.</span></div>'; });
+  }
+  document.addEventListener("click", function (e) { var b = e.target.closest("#period button"); if (b) { days = +b.dataset.days; load(); } });
+  var tip = $("tip");
+  document.addEventListener("mousemove", function (e) {
+    var h = e.target.closest && e.target.closest(".hit");
+    document.querySelectorAll(".bar.on").forEach(function (x) { x.classList.remove("on"); });
+    if (!h) { tip.hidden = true; return; }
+    if (h.nextElementSibling && h.nextElementSibling.classList.contains("bar")) h.nextElementSibling.classList.add("on");
+    tip.textContent = h.dataset.tip; tip.hidden = false; tip.style.left = e.clientX + "px"; tip.style.top = e.clientY + "px";
+  });
+  load();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+name = "noticedesk"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# Workers AI: the open models in the lab. Free plan: 10,000 Neurons a day, then requests fail until 00:00 UTC.
+[ai]
+binding = "AI"
+
+[vars]
+# Maximum fresh model calls per day across all visitors and models.
+DAILY_LIMIT = "400"
+
+[[kv_namespaces]]
+binding = "KV"
