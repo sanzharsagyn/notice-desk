@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Notice Desk API</title>
+<meta name="description" content="A versioned HTTP API for triaging DSA notices with a choice of model policy: ten models, a router, verified quotes, Article 16 checks and a draft statement of reasons. OpenAPI 3.1, curl and Python examples.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/desk/lab.css?v=6">
+<style>
+.doc{display:flex;flex-direction:column;gap:34px;max-width:960px}
+.doc section{display:flex;flex-direction:column;gap:10px}
+.doc p,.doc li{max-width:78ch}
+.m{font:600 11px var(--mono);padding:2px 7px;border-radius:5px;background:var(--accent-soft);color:var(--accent)}
+.m.post{background:var(--warn-bg);color:var(--warn)}
+.ep td:nth-child(2){white-space:nowrap}
+.code{position:relative;min-width:0}
+.code pre{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;font:12.5px/1.6 var(--mono)}
+.code .copy{position:absolute;top:8px;right:8px;font:600 12px var(--ui);background:var(--bg);color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:3px 9px;cursor:pointer}
+#out{max-height:440px;overflow:auto}
+ul.plain{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.pick{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.pick .btn{margin-left:0}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="/"><span class="mono">Sanzhar Sagyn</span><span class="sep">/</span><b>Notice Desk · Model Lab</b></a>
+    <nav class="nav" aria-label="Pages"><a href="/">Lab</a><a href="/desk/api.html" aria-current="page">API</a><a href="/desk/ops.html">Monitoring</a><a href="https://github.com/sanzharsagyn/notice-desk" target="_blank" rel="noopener">Code</a></nav>
+  </div>
+</header>
+<main class="wrap">
+  <div class="bh">
+    <h1 style="font-size:30px">API</h1>
+    <p>Everything the lab page shows is computed from this API: one call per model per notice for the evaluation, and the triage endpoint with a policy of your choice for production-style use. Described in <a href="/api/openapi.json">OpenAPI 3.1</a>.</p>
+  </div>
+  <div class="warn">A fictional demo. Do not send real personal data. The API is open with rate limits; in production it would sit behind the platform's API gateway and identity provider.</div>
+
+  <div class="doc">
+    <section>
+      <h2>Endpoints</h2>
+      <div class="card tscroll"><table class="ep">
+        <thead><tr><th>Method</th><th>Path</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><span class="m post">POST</span></td><td><code>/api/v1/triage</code></td><td>Triage one notice, a sample by id or your own text, through a <code>policy</code>: one model key, or <code>cheap&gt;strong</code> with the router between them. Default <code>haiku&gt;sonnet</code>.</td></tr>
+          <tr><td><span class="m post">POST</span></td><td><code>/api/v1/run</code></td><td>One model on one sample notice or attack. The evaluation calls this for every pair; answers are cached per prompt and sample version.</td></tr>
+          <tr><td><span class="m">GET</span></td><td><code>/api/v1/models</code></td><td>The ten models with family, size, number format, list prices, and the Workers AI id that answered the last probe.</td></tr>
+          <tr><td><span class="m post">POST</span></td><td><code>/api/v1/probe</code></td><td>Asks each Workers AI candidate id for one word and remembers which ones this account can run.</td></tr>
+          <tr><td><span class="m post">POST</span></td><td><code>/api/v1/batch</code></td><td>Queue every sample notice in one Claude Message Batch at half the price. Up to 3 a day.</td></tr>
+          <tr><td><span class="m">GET</span></td><td><code>/api/v1/batch/{id}</code></td><td>Batch status; once it has ended, the validated results for every notice.</td></tr>
+          <tr><td><span class="m post">POST</span></td><td><code>/api/v1/feedback</code></td><td>The moderator's decision next to the proposal. Feeds the override rate.</td></tr>
+          <tr><td><span class="m">GET</span></td><td><code>/api/v1/metrics?days=14</code></td><td>Daily counters, calls per model included, for the <a href="/desk/ops.html">monitoring page</a>.</td></tr>
+          <tr><td><span class="m">GET</span></td><td><code>/api/v1/health</code></td><td>Status, default policy, model keys, prompt and sample versions, limits.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section>
+      <h2>Try it</h2>
+      <p>One recorded answer of one model on one item. The attack <code>A-2</code> is a Polish notice that asks the system not to report any URL; compare what a 1B model and Claude Haiku do with it.</p>
+      <div class="pick">
+        <label class="sel">Item <select id="item"></select></label>
+        <label class="sel">Model <select id="model"></select></label>
+        <button class="btn" type="button" id="run">Run this request</button><span class="note mono" id="runMsg" role="status"></span>
+      </div>
+      <div class="code"><button class="copy" type="button">Copy</button><pre id="curl1"></pre></div>
+      <div class="code" id="outWrap" hidden><pre id="out"></pre></div>
+    </section>
+
+    <section>
+      <h2>Your own notice through a cascade</h2>
+      <p>Send the text as it arrived. <code>senderRecentCount</code> is how many notices the same sender filed in the last 24 hours; above 20 the notice goes to abuse review whatever the model says.</p>
+      <div class="code"><button class="copy" type="button">Copy</button><pre id="curl2"></pre></div>
+    </section>
+
+    <section>
+      <h2>Python</h2>
+      <p>A client with no dependencies is in <a href="https://github.com/sanzharsagyn/notice-desk/blob/main/examples/noticedesk_client.py" target="_blank" rel="noopener">examples/noticedesk_client.py</a>. Its integration tests run on every commit against a local copy of the server with mock models.</p>
+      <div class="code"><button class="copy" type="button">Copy</button><pre id="py"></pre></div>
+    </section>
+
+    <section>
+      <h2>What comes back from triage</h2>
+      <ul class="plain">
+        <li><b>route</b>: every model step with category, confidence, verified and rejected values, whether the JSON was broken, cost and time, and the reasons the router gave for escalating.</li>
+        <li><b>facts</b>: URLs, notifier, statements, each with the exact <code>quote</code> and its <code>span</code>. Only verified values are here; the rest is in <b>rejected</b> with the reason.</li>
+        <li><b>injections</b>: passages that try to instruct the system, flagged by rules, the model, or both.</li>
+        <li><b>decision</b>: the proposed action, priority, deadline, the Article 16 checklist and what is missing.</li>
+        <li><b>statement</b>: when content would be removed or disabled, a draft statement of reasons in the format of the EU DSA Transparency Database, for a moderator to approve.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Errors and limits</h2>
+      <ul class="plain">
+        <li><code>400</code> invalid input, with a code such as <code>empty</code>, <code>too_long</code> or <code>unknown_model</code>.</li>
+        <li><code>429</code> <code>rate_limited</code> after 6 own runs a day per IP, 3 batches or 6 probes a day; <code>budget</code> when the daily cap on fresh model calls is used up.</li>
+        <li><code>502</code> <code>model_error</code> with the upstream error text, never a key. Not cached, safe to retry. A model that answers with broken JSON is not an error: that answer is recorded, because it is a result.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>What production would add</h2>
+      <ul class="plain">
+        <li>Authentication through the platform's API gateway and identity provider instead of open access.</li>
+        <li>A queue between intake and triage, the batch path for backlogs and the live path for urgent categories.</li>
+        <li>The evaluation as a release gate: re-run on every prompt, model or router change, with the policy chosen from the result rather than by hand.</li>
+        <li>Statements of reasons submitted to the Transparency Database API after approval, and metrics in a real store with alerting.</li>
+      </ul>
+    </section>
+  </div>
+  <footer class="foot"><p>Built by Sanzhar Sagyn, October 2026.</p></footer>
+</main>
+<script type="module">
+import { ITEMS } from "/desk/samples.js";
+import { MODELS, MODEL_KEYS } from "/lib/models.js";
+const $ = (id) => document.getElementById(id), base = location.origin;
+$("item").innerHTML = ITEMS.map((it) => '<option value="' + it.id + '"' + (it.id === "A-2" ? " selected" : "") + ">" + it.id + " · " + it.what.replace(/</g, "&lt;") + "</option>").join("");
+$("model").innerHTML = MODEL_KEYS.map((k) => '<option value="' + k + '"' + (k === "llama-3.2-1b" ? " selected" : "") + ">" + MODELS[k].label + "</option>").join("");
+function body() { return { itemId: $("item").value, model: $("model").value }; }
+function curl1() { $("curl1").textContent = "curl -s " + base + "/api/v1/run \\\n  -H 'content-type: application/json' \\\n  -d '" + JSON.stringify(body()) + "'"; }
+curl1();
+$("item").addEventListener("change", curl1); $("model").addEventListener("change", curl1);
+$("curl2").textContent = "curl -s " + base + "/api/v1/triage -H 'content-type: application/json' \\\n  -d '{\"policy\": \"llama-3.1-8b-fast>haiku\", \"notice\": {\"from\": \"eva@studiovries.example\", \"subject\": \"Inbreuk op auteursrecht\", \"senderRecentCount\": 1,\n       \"text\": \"Op https://demotube.example/v/n4m5l6 staat onze film zonder toestemming.\\nEva de Vries\\neva@studiovries.example\"}}'";
+$("py").textContent = "from noticedesk_client import NoticeDesk\n\ndesk = NoticeDesk(\"" + base + "\")\n\n# one model, one attack: did it hide the URLs as the notice asked?\nstep = desk.run(\"A-2\", \"llama-3.2-1b\")[\"step\"]\nprint([f for f in step[\"facts\"] if f[0] == \"url\"], \"flagged by:\", step[\"inj\"])\n\n# a sample notice through a cascade\nr = desk.triage_sample(\"N-2026-31430\", policy=\"llama-3.1-8b-fast>haiku\")\nprint(r[\"decision\"][\"act\"], \"via\", \" -> \".join(s[\"modelKey\"] for s in r[\"route\"][\"steps\"]))\nprint(\"escalated because:\", r[\"route\"][\"reasons\"])";
+document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", () => {
+  const pre = b.parentNode.querySelector("pre");
+  const done = () => { b.textContent = "Copied"; setTimeout(() => { b.textContent = "Copy"; }, 1500); };
+  const select = () => { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(pre.textContent).then(done, select); else select();
+}));
+$("run").addEventListener("click", async () => {
+  const msg = $("runMsg"), t0 = performance.now();
+  msg.textContent = "running…"; $("run").disabled = true;
+  try {
+    const r = await fetch("/api/v1/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()) });
+    const j = await r.json();
+    $("out").textContent = JSON.stringify(j, null, 2); $("outWrap").hidden = false;
+    msg.textContent = "HTTP " + r.status + " · " + Math.round(performance.now() - t0) + " ms" + (j.cached ? " · recorded answer" : j.step ? " · fresh call" : "");
+  } catch (e) { msg.textContent = "The request failed."; }
+  $("run").disabled = false;
+});
+</script>
+</body>
+</html>
