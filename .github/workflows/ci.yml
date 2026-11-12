@@ -13,6 +13,10 @@ jobs:
           python-version: "3.12"
       - name: Unit tests
         run: npm test
+      - name: Python evaluation package (pytest, including parity with the JavaScript lab)
+        run: |
+          pip install pytest
+          cd py && python -m pytest -v
       - name: API integration test (Python client, local server, mock model)
         run: |
           node tests/dev-server.mjs &

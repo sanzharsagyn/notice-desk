@@ -3,3 +3,5 @@
    .dev.vars
    __pycache__/
    eval/RESULTS.local.md
+   .pytest_cache/
+   *.egg-info/
