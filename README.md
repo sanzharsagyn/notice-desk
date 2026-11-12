@@ -57,6 +57,7 @@ flowchart LR
 
 ```bash
 npm test                                         # rules, router, lab analysis, Worker with mocked Claude and Workers AI
+(cd py && python -m pytest)                      # the Python evaluation, checked against the JavaScript lab
 node tests/dev-server.mjs                        # http://localhost:8790 with mock models (no key, no cost)
 node eval/run.mjs http://localhost:8790 --publish-local   # the whole lab against the mock
 node tests/e2e.mjs                               # browser tests of the lab, API and monitoring pages
@@ -78,6 +79,21 @@ The first real run put Llama 3.3 70B at 6 of 14. Reading the rejected values mod
 Prompt n3 generates both instructions from one schema. It also says that a request to remove content is not an instruction to report, and it tries JSON mode on every Llama variant. The validator now accepts any present value whose quote is in the notice. The run keeps the n2 scores as history, and the lab page shows the change model by model.
 
 After n3, one error class remained that no router can see: a real quote with the wrong meaning. Llama 3.1 8B fp8-fast quoted "Bitte löscht das sofort." ("delete it at once") as a good-faith statement. The good-faith statement is a fixed legal formula, so `meaningCheck` in `core.js` now checks its wording. The lab re-checks recorded answers with the current rules, so the effect of a new rule is measured without new model calls.
+
+## Python
+
+`py/noticedesk_eval` is the evaluation in Python: replaying router policies over recorded answers, scoring them against the reference labels, the Pareto frontier and the recommendation. It ports `lab.js`, `stats.js` and the rules from `core.js` that the analysis uses, with no dependencies.
+
+```bash
+cd py
+python -m noticedesk_eval ../public/desk/eval-results.json                      # leaderboard, policies, recommendation
+python -m noticedesk_eval ../public/desk/eval-results.json --no-meaning-check   # what the meaning check changed
+python -m pytest -v                                                             # needs pytest and Node.js
+```
+
+Two implementations of the same rules drift unless something checks them. `tests/test_parity.py` runs the JavaScript lab through Node (`eval/parity-dump.mjs`) and compares every policy score, every per-model statistic and every replayed item with the Python result: on the real n3 answers, with the meaning check on and off, and on degraded copies with missing answers, broken JSON, false alarms and confidences at the router threshold. The reference labels and prices are not copied by hand: `eval/export-fixture.mjs` exports them from the JavaScript modules, and a test fails if the committed `fixture.json` is out of date.
+
+The parity test was itself tested by planting six differences in the Python code (Python's Unicode `\w` and `\b` instead of the ASCII classes of a JavaScript regex, `<=` at the router threshold, Python's rounding of halves, no F1 tolerance, a wrong fact count). The first version of the test missed three of them, because the real answers have no confidence exactly at 75% and no halves to round; the degraded copies now include those values, and all six fail the test.
 
 ## Model retirements
 
