@@ -1,6 +1,19 @@
 # Notice Desk · Model Lab
 
-Which model should read a million notices a month? This lab answers that for one concrete job: triaging notices to a video platform under the EU Digital Services Act. Ten models get the same prompt and the same checks. Eight are open models on Cloudflare Workers AI, four of them serving variants of Llama 3.1 8B (fp16, fp8, AWQ int4, fp8 with fast kernels); two are Claude. Code then replays every router policy over the recorded answers: one model alone, or a cheap model with a stronger one behind it. Each policy is placed on a cost-quality Pareto frontier, and code picks the recommendation.
+[![tests](https://github.com/sanzharsagyn/notice-desk/actions/workflows/ci.yml/badge.svg)](https://github.com/sanzharsagyn/notice-desk/actions/workflows/ci.yml)
+
+Which model should read a million notices a month? This lab answers that for one concrete job: triaging notices to a video platform under the EU Digital Services Act. Eight models get the same prompt and the same checks: six open models on Cloudflare Workers AI, two of them serving variants of Llama 3.1 8B (fp8, and fp8 with fast kernels), and two Claude models. Code then replays every router policy over the recorded answers: one model alone, or a cheap model with a stronger one behind it. Each policy is placed on a cost-quality Pareto frontier, and code picks the recommendation.
+
+**Result of the latest run** (prompt n3, 14 notices in 8 languages and 5 prompt-injection attacks):
+
+- **Claude Haiku 5.5 alone** is the recommendation: 14 of 14 correct actions, 5 of 5 attacks stopped, $0.35 per 1,000 notices, p95 2.7 s. As a Message Batch: $0.16 per 1,000.
+- **A cheaper model in front pays only before an expensive one.** Haiku → Sonnet matches Sonnet at 61% less; the best cascade in front of Haiku saves 2.5% and adds 1.8 s at p95, so it is not worth its extra moving part.
+- **Serving matters as much as the number format.** The two fp8 deployments of Llama 3.1 8B differ 10× in median latency: 1.9 s and 19.6 s.
+- **Reading the errors found a bug in the lab itself:** open models got weaker JSON instructions than Claude. After the fix, Llama 3.3 70B went from 6 to 12 of 14.
+
+![Cost against quality: every policy, the Pareto frontier and the recommendation](docs/lab-frontier.png)
+
+**Stack:** Cloudflare Workers, Workers AI, Anthropic API (tool use, prompt caching, Message Batches), JavaScript; the evaluation also in Python, checked against the JavaScript version; 45 JS unit tests, 22 Python tests, browser end-to-end tests, GitHub Actions.
 
 **Live:** [lab](https://noticedesk.sanzarsagyn.workers.dev/) · [API](https://noticedesk.sanzarsagyn.workers.dev/desk/api.html) · [monitoring](https://noticedesk.sanzarsagyn.workers.dev/desk/ops.html) · results in [`eval/RESULTS.md`](eval/RESULTS.md) · **Author:** Sanzhar Sagyn · Companion to [Claim Triage Desk](https://github.com/sanzharsagyn/claim-triage-desk). The platform, notices, people and works are fictional.
 
