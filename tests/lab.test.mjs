@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { compact, replayItem, scorePolicy, modelStats, candidatePolicies, pareto, recommend } from "../public/lib/lab.js";
 import { wilson, quantile } from "../public/lib/stats.js";
+import { isRetired, hasRetirement } from "../public/lib/models.js";
 import { ITEMS, NOTICES, ATTACKS, attackSucceeded } from "../public/desk/samples.js";
 import { screenInjections } from "../public/lib/core.js";
 
@@ -129,4 +130,13 @@ test("false alarms: a model-only instruction flag on a notice without one", () =
   assert.equal(st.falseAlarms, 1);
   assert.equal(st.cleanRun, NOTICES.filter((n) => !n.gold.injection).length);
   assert.equal(replayItem(clean, ["x"], { x: a }).act, "abuse_review", "which is why a false alarm costs a correct action");
+});
+
+test("retirement: a model is gone from its retirement day on; Claude never retires here", () => {
+  assert.equal(isRetired("llama-3.2-1b", "2026-11-19"), false);
+  assert.equal(isRetired("llama-3.2-1b", "2026-11-20"), true);
+  assert.equal(isRetired("llama-3.1-8b-fp8", "2026-12-01"), true);
+  assert.equal(isRetired("llama-3.1-8b-fast", "2030-01-01"), false, "the fast fp8 variant stays");
+  assert.equal(isRetired("haiku", "2030-01-01"), false);
+  assert.ok(hasRetirement("llama-3.2-3b") && !hasRetirement("llama-3.3-70b"));
 });

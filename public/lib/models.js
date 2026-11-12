@@ -4,11 +4,11 @@
 // and are used only for cost estimates; Workers AI bills in Neurons at $0.011 per 1,000.
 
 export const MODELS = {
-  "llama-3.2-1b": { label: "Llama 3.2 1B", provider: "workers-ai", family: "Llama", params: "1B", quant: "fp16", ids: ["@cf/meta/llama-3.2-1b-instruct"], inPerM: 0.027, outPerM: 0.201 , jsonMode: true},
-  "llama-3.2-3b": { label: "Llama 3.2 3B", provider: "workers-ai", family: "Llama", params: "3B", quant: "fp16", ids: ["@cf/meta/llama-3.2-3b-instruct"], inPerM: 0.0509, outPerM: 0.335 , jsonMode: true},
-  "llama-3.1-8b": { label: "Llama 3.1 8B", provider: "workers-ai", family: "Llama", params: "8B", quant: "fp16", ids: ["@cf/meta/llama-3.1-8b-instruct"], inPerM: 0.282, outPerM: 0.827, jsonMode: true, variantOf: "llama-3.1-8b" },
-  "llama-3.1-8b-fp8": { label: "Llama 3.1 8B fp8", provider: "workers-ai", family: "Llama", params: "8B", quant: "fp8", ids: ["@cf/meta/llama-3.1-8b-instruct-fp8"], inPerM: 0.152, outPerM: 0.287, variantOf: "llama-3.1-8b" , jsonMode: true},
-  "llama-3.1-8b-awq": { label: "Llama 3.1 8B AWQ int4", provider: "workers-ai", family: "Llama", params: "8B", quant: "int4 (AWQ)", ids: ["@cf/meta/llama-3.1-8b-instruct-awq"], inPerM: 0.123, outPerM: 0.266, variantOf: "llama-3.1-8b" , jsonMode: true},
+  "llama-3.2-1b": { label: "Llama 3.2 1B", provider: "workers-ai", family: "Llama", params: "1B", quant: "fp16", ids: ["@cf/meta/llama-3.2-1b-instruct"], inPerM: 0.027, outPerM: 0.201, jsonMode: true, retired: "2026-11-20" },
+  "llama-3.2-3b": { label: "Llama 3.2 3B", provider: "workers-ai", family: "Llama", params: "3B", quant: "fp16", ids: ["@cf/meta/llama-3.2-3b-instruct"], inPerM: 0.0509, outPerM: 0.335, jsonMode: true, retired: "2026-11-20" },
+  "llama-3.1-8b": { label: "Llama 3.1 8B", provider: "workers-ai", family: "Llama", params: "8B", quant: "fp16", ids: ["@cf/meta/llama-3.1-8b-instruct"], inPerM: 0.282, outPerM: 0.827, jsonMode: true, variantOf: "llama-3.1-8b", retired: "2026-05-30" },
+  "llama-3.1-8b-fp8": { label: "Llama 3.1 8B fp8", provider: "workers-ai", family: "Llama", params: "8B", quant: "fp8", ids: ["@cf/meta/llama-3.1-8b-instruct-fp8"], inPerM: 0.152, outPerM: 0.287, variantOf: "llama-3.1-8b", jsonMode: true, retired: "2026-11-20" },
+  "llama-3.1-8b-awq": { label: "Llama 3.1 8B AWQ int4", provider: "workers-ai", family: "Llama", params: "8B", quant: "int4 (AWQ)", ids: ["@cf/meta/llama-3.1-8b-instruct-awq"], inPerM: 0.123, outPerM: 0.266, variantOf: "llama-3.1-8b", jsonMode: true, retired: "2026-05-30" },
   "llama-3.1-8b-fast": { label: "Llama 3.1 8B fp8-fast", provider: "workers-ai", family: "Llama", params: "8B", quant: "fp8, fast kernels", ids: ["@cf/meta/llama-3.1-8b-instruct-fp8-fast", "@cf/meta/llama-3.1-8b-instruct-fast"], inPerM: 0.045, outPerM: 0.384, jsonMode: true, variantOf: "llama-3.1-8b" },
   "llama-3.3-70b": { label: "Llama 3.3 70B fp8-fast", provider: "workers-ai", family: "Llama", params: "70B", quant: "fp8", ids: ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"], inPerM: 0.293, outPerM: 2.253, jsonMode: true },
   "gpt-oss-20b": { label: "gpt-oss 20B", provider: "workers-ai", family: "gpt-oss", params: "21B MoE (3.6B active)", quant: "MXFP4", ids: ["@cf/openai/gpt-oss-20b"], inPerM: 0.20, outPerM: 0.30, api: "responses" },
@@ -16,6 +16,16 @@ export const MODELS = {
   sonnet: { label: "Claude Sonnet 5.5", provider: "anthropic", family: "Claude", params: "", quant: "", ids: ["claude-sonnet-5-5"], inPerM: 2.00, outPerM: 10.00, forceTool: false, maxTokens: 6000 },
 };
 export const MODEL_KEYS = Object.keys(MODELS);
+
+// Workers AI retires models from its catalogue. A retired model keeps its recorded answers in the lab,
+// but no fresh call is made from the retirement day on, and the live policy picker no longer offers it.
+// `retired` is the first day the model is gone, from the provider's deprecation notice.
+export function isRetired(key, day) {
+  const r = MODELS[key] && MODELS[key].retired;
+  return !!r && String(day || new Date().toISOString().slice(0, 10)) >= r;
+}
+// Retired or announced for retirement: the live picker leaves these out, so nobody starts on a model about to disappear.
+export const hasRetirement = (key) => !!(MODELS[key] && MODELS[key].retired);
 export const BATCH_DISCOUNT = 0.5;
 export const QUANT_FAMILY = ["llama-3.1-8b", "llama-3.1-8b-fp8", "llama-3.1-8b-awq", "llama-3.1-8b-fast"];
 export const STRONG = ["sonnet", "haiku", "llama-3.3-70b"]; // candidates for the second tier of a cascade

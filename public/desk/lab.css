@@ -84,6 +84,7 @@ th.s{cursor:pointer} th.s:hover{color:var(--ink)}
 td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 td.n{font-family:var(--mono);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
 td .sub{display:block;font:400 11px var(--mono);color:var(--faint)}
+td .ret{display:block;margin-top:3px;font:500 11px var(--ui);color:var(--warn)}
 tr.recrow td{background:var(--accent-soft)}
 .ci{display:inline-block;position:relative;width:70px;height:6px;background:var(--sunk);border-radius:3px;margin-left:6px;vertical-align:middle}
 .ci i{position:absolute;top:0;bottom:0;background:var(--faint);border-radius:3px;opacity:.6}

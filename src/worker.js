@@ -11,7 +11,7 @@
 // A policy is one model ("sonnet") or a cheap model and a strong one ("llama-3.1-8b-fast>sonnet"): code decides when the strong one must look again.
 
 import { runModel, finish, routeDecision, createBatch, getBatch, batchResults, readAnswer, PROMPT_VERSION } from "./extract.js";
-import { MODELS, parsePolicy } from "../public/lib/models.js";
+import { MODELS, parsePolicy, isRetired } from "../public/lib/models.js";
 import { compact } from "../public/lib/lab.js";
 import { openapi } from "./openapi.js";
 import { minorSafety, ACTIONS } from "../public/lib/core.js";
@@ -94,6 +94,7 @@ async function step(env, notice, modelKey, cacheKey, ttl, fresh) {
     const hit = await env.KV.get(cacheKey);
     if (hit) return JSON.parse(hit);
   }
+  if (isRetired(modelKey, today())) { const e = new Error("retired"); e.retired = modelKey; throw e; }
   const s = await runModel({ env: env, notice: notice, modelKey: modelKey });
   s.ranAt = new Date().toISOString();
   fresh.push(s);
@@ -133,7 +134,11 @@ async function handleRun(request, env) {
   const fresh = [];
   let s;
   try { s = await step(env, item, b.model, key, null, fresh); }
-  catch (e) { await record(env, function (m) { m.errors++; }); return json({ error: "model_error", message: "The model call failed.", status: e.status || 0, upstream: e.detail || "" }, 502); }
+  catch (e) {
+    if (e.retired) return json({ error: "model_retired", message: MODELS[e.retired].label + " was retired by Workers AI on " + MODELS[e.retired].retired + ". Its recorded answers on the sample notices are still served; new calls are not possible.", model: e.retired }, 410);
+    await record(env, function (m) { m.errors++; });
+    return json({ error: "model_error", message: "The model call failed.", status: e.status || 0, upstream: e.detail || "" }, 502);
+  }
   await spend(env, fresh.length);
   await record(env, function (m) { recordResult(m, finish(item, b.model, [s], null, today()), fresh, false); });
   return json({ itemId: item.id, model: b.model, cached: false, step: compact(s) });
@@ -147,7 +152,7 @@ async function handleProbe(env) {
   const resolved = {}, errors = {};
   for (const k of Object.keys(MODELS)) {
     const m = MODELS[k];
-    if (m.provider !== "workers-ai") continue;
+    if (m.provider !== "workers-ai" || isRetired(k, today())) continue;
     for (const id of m.ids) {
       try {
         const input = m.api === "responses" ? { instructions: "Answer with one word.", input: "Say OK." } : { messages: [{ role: "user", content: "Say OK." }], max_tokens: 5 };
@@ -201,6 +206,7 @@ async function handleTriage(request, env) {
   let out;
   try { out = await triage(env, notice, strategy, keyBase, ttl); }
   catch (e) {
+    if (e.retired) return json({ error: "model_retired", message: MODELS[e.retired].label + " was retired by Workers AI on " + MODELS[e.retired].retired + ". Its recorded answers on the sample notices are still served; new calls are not possible.", model: e.retired }, 410);
     await record(env, function (m) { m.errors++; });
     return json({ error: "model_error", message: "The model call failed. Please try again in a minute.", status: e.status || 0, upstream: e.detail || "" }, 502);
   }
@@ -266,7 +272,7 @@ function health(env) {
 }
 async function models(env) {
   const resolved = JSON.parse((await env.KV.get("models:resolved")) || "{}");
-  return json({ models: Object.keys(MODELS).map(function (k) { const m = MODELS[k]; return { key: k, label: m.label, provider: m.provider, family: m.family, params: m.params, quant: m.quant, inPerM: m.inPerM, outPerM: m.outPerM, id: m.provider === "anthropic" ? m.ids[0] : resolved[k] || null }; }), probed: Object.keys(resolved).length > 0 });
+  return json({ models: Object.keys(MODELS).map(function (k) { const m = MODELS[k]; return { key: k, label: m.label, provider: m.provider, family: m.family, params: m.params, quant: m.quant, inPerM: m.inPerM, outPerM: m.outPerM, retired: m.retired || null, id: m.provider === "anthropic" ? m.ids[0] : resolved[k] || null }; }), probed: Object.keys(resolved).length > 0 });
 }
 
 export default {

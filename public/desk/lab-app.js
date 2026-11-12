@@ -1,6 +1,6 @@
 // Notice Desk Model Lab: page logic. All analysis comes from /lib/lab.js, the same code the evaluation runs,
 // applied to the recorded answers in eval-results.json. Only "Try your own notice" calls a model.
-import { MODELS, QUANT_FAMILY, policyLabel, parsePolicy } from "/lib/models.js";
+import { MODELS, QUANT_FAMILY, policyLabel, parsePolicy, hasRetirement } from "/lib/models.js";
 import { candidatePolicies, scorePolicy, modelStats, pareto, recommend, replayItem, setMeaningChecks } from "/lib/lab.js";
 import { decide, screenInjections, checkStatement, meaningCheck, ACTIONS, CATEGORY_LABELS, KIND_LABELS } from "/lib/core.js";
 import { ITEMS, NOTICES, ATTACKS, attackSucceeded } from "./samples.js";
@@ -148,7 +148,7 @@ function renderBoard() {
   $("board").innerHTML = "<table><thead><tr>" + H.map((h) => (h[1] ? '<th class="s" data-sort="' + h[1] + '">' + h[0] + (sortKey === h[1] ? (sortDir < 0 ? " ↓" : " ↑") : "") + "</th>" : "<th>" + h[0] + "</th>")).join("") + "</tr></thead><tbody>" +
     rows.map((r) => {
       const M = MODELS[r.k], ci = r.s.actionCI;
-      return "<tr><td><b>" + esc(M.label) + '</b><span class="sub">' + esc([M.params, M.quant, M.provider === "anthropic" ? "Anthropic API" : "Workers AI"].filter(Boolean).join(" · ")) + (ev.models[r.k].error ? ' · <span class="bad">' + esc(ev.models[r.k].error.slice(0, 60)) + "</span>" : "") + "</span></td>" +
+      return "<tr><td><b>" + esc(M.label) + '</b><span class="sub">' + esc([M.params, M.quant, M.provider === "anthropic" ? "Anthropic API" : "Workers AI"].filter(Boolean).join(" · ")) + (ev.models[r.k].error ? ' · <span class="bad">' + esc(ev.models[r.k].error.slice(0, 60)) + "</span>" : "") + "</span>" + (M.retired ? '<span class="ret">' + (M.retired <= new Date().toISOString().slice(0, 10) ? "Retired by Workers AI on " : "Workers AI retires it on ") + esc(M.retired) + ". Answers recorded before.</span>" : "") + "</td>" +
         '<td class="n">' + r.act + "/" + r.s.n + '<span class="ci" title="95% Wilson interval ' + pc(ci[0]) + "–" + pc(ci[1]) + '"><i style="left:' + ci[0] * 100 + "%;right:" + (100 - ci[1] * 100) + '%"></i><b style="left:calc(' + (r.act / r.s.n) * 100 + '% - 1px)"></b></span><span class="sub">' + pc(ci[0]) + "–" + pc(ci[1]) + "</span></td>" +
         '<td class="n">' + r.cat + "/" + r.s.n + '</td><td class="n">' + (r.f1 * 100).toFixed(1) + '%</td><td class="n ' + cls(r.m.jsonErrors, true) + '">' + r.m.jsonErrors + "/" + r.m.answered + '</td><td class="n ' + cls(r.m.rejected, true) + '">' + (r.rej * 100).toFixed(1) + '%<span class="sub">' + r.m.rejected + " of " + r.m.factsOut + "</span></td>" +
         '<td class="n ' + (r.fa ? "bad" : "good") + '" title="instruction reported on a notice that has none">' + r.fa + "/" + r.m.cleanRun + "</td>" +
@@ -304,7 +304,7 @@ const EX = {
   vague: { from: "anonymous", subject: "bad video", text: "I hate this video, it is stupid https://demotube.example/v/h8j9k0 remove it" },
 };
 function renderTry() {
-  const opts = [rec.policy].concat(front.map((s) => s.policy), ["haiku>sonnet", "sonnet"]).filter((p, i, a) => a.indexOf(p) === i && parsePolicy(p) && parsePolicy(p).every((k) => keys.includes(k)));
+  const opts = [rec.policy].concat(front.map((s) => s.policy), ["haiku>sonnet", "sonnet"]).filter((p, i, a) => a.indexOf(p) === i && parsePolicy(p) && parsePolicy(p).every((k) => keys.includes(k) && !hasRetirement(k)));
   $("ownPolicy").innerHTML = opts.map((p) => '<option value="' + p + '">' + esc(plabel(p)) + (p === rec.policy ? " (recommended)" : "") + "</option>").join("");
 }
 async function runOwn() {

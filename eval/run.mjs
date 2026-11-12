@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NOTICES, ATTACKS, ITEMS, SAMPLES_VERSION } from "../public/desk/samples.js";
-import { MODELS, MODEL_KEYS, policyLabel } from "../public/lib/models.js";
+import { MODELS, MODEL_KEYS, policyLabel, isRetired } from "../public/lib/models.js";
 import { candidatePolicies, scorePolicy, modelStats, pareto, recommend } from "../public/lib/lab.js";
 import { report } from "./report.js";
 
@@ -33,8 +33,6 @@ let resolved = {}, unavailable = {};
 try { const pr = await api("/api/v1/probe", {}); resolved = pr.resolved || {}; for (const [k, e] of Object.entries(pr.errors || {})) if (!resolved[k] && (unavailable[k] = e)) console.log("  not available: " + k + "  (" + e.slice(0, 140) + ")"); }
 catch (e) { console.log("Probe skipped: " + e.message); try { resolved = Object.fromEntries((await api("/api/v1/models")).models.filter((m) => m.id && m.provider === "workers-ai").map((m) => [m.key, m.id])); } catch (_) { /* none */ } }
 const wanted = (arg("--models") || MODEL_KEYS.join(",")).split(",").filter((k) => MODELS[k]);
-const keys = wanted.filter((k) => MODELS[k].provider === "anthropic" || resolved[k]);
-console.log("Models: " + keys.map((k) => MODELS[k].label).join(", ") + "\n");
 
 // 2. Every model on every item. Two calls in flight at a time; failures are recorded, not fatal.
 // Answers from an earlier run are reused only if they come from the same prompt and samples. Otherwise the earlier
@@ -56,6 +54,15 @@ if (prevFile) {
     console.log("Prompt changed from " + prevPrompt + " to " + PROMPT + ": the earlier scores are kept as history.");
   }
 }
+// A model Workers AI has retired stays in the lab if it has answers recorded with this prompt: the Worker serves
+// them from its cache and refuses fresh calls with 410. Without recorded answers it is listed as not measured.
+const recordedRetired = (k) => MODELS[k].provider === "workers-ai" && isRetired(k) && prev[k] && Object.keys(prev[k]).length > 0;
+for (const k of wanted) if (MODELS[k].provider === "workers-ai" && isRetired(k) && !recordedRetired(k)) {
+  unavailable[k] = "Retired by Workers AI (deprecated on " + MODELS[k].retired + "); no answers recorded with prompt " + PROMPT + ".";
+  console.log("  not available: " + k + "  (retired " + MODELS[k].retired + ")");
+}
+const keys = wanted.filter((k) => MODELS[k].provider === "anthropic" || resolved[k] || recordedRetired(k));
+console.log("Models: " + keys.map((k) => MODELS[k].label + (recordedRetired(k) ? " (retired, recorded answers)" : "")).join(", ") + "\n");
 const answers = {}, errors = {};
 let quotaOut = false; // the Workers AI daily allowance is used up: skip the remaining open-model calls, keep earlier answers
 for (const k of keys) {
@@ -75,6 +82,7 @@ for (const k of keys) {
         try { const r = await api("/api/v1/run", { itemId: it.id, model: k }); answers[k][it.id] = r.step; if (!r.cached) fresh++; break; }
         catch (e) {
           if (/neuron|allocation|quota/i.test(e.message)) quotaOut = true;
+          if (e.status === 410) { if (prev[k] && prev[k][it.id]) answers[k][it.id] = prev[k][it.id]; else errors[k] = e.message; break; } // retired: keep the recorded answer
           if (e.status === 429 || quotaOut || attempt === 3) { errors[k] = e.message; if (prev[k] && prev[k][it.id]) answers[k][it.id] = prev[k][it.id]; break; }
           await sleep(2500 * attempt);
         }

@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/worker.js";
 import { buildRequest, textOf, parseJsonAnswer } from "../src/extract.js";
-import { costUsd, MODELS, parsePolicy } from "../public/lib/models.js";
-import { NOTICES } from "../public/desk/samples.js";
+import { costUsd, MODELS, parsePolicy, isRetired } from "../public/lib/models.js";
+import { NOTICES, SAMPLES_VERSION } from "../public/desk/samples.js";
+import { PROMPT_VERSION } from "../src/extract.js";
 import { mockFetch, mockAIBinding, mockAI } from "./mock-model.mjs";
 
 function kv() { const m = new Map(); return { m, get: async (k) => (m.has(k) ? m.get(k) : null), put: async (k, v) => { m.set(k, v); } }; }
@@ -149,7 +150,10 @@ test("probe: finds which candidate id this account can run and the next calls us
   assert.equal(p.resolved["llama-3.1-8b-fast"], "@cf/meta/llama-3.1-8b-instruct-fast");
   assert.match(p.errors["llama-3.1-8b-fast"], /No such model/);
   assert.equal(JSON.parse(e.KV.m.get("models:resolved"))["llama-3.1-8b-fast"], "@cf/meta/llama-3.1-8b-instruct-fast");
-  assert.equal(Object.keys(p.resolved).length, 8);
+  // every Workers AI model that is not retired today; retired ones are not probed at all
+  const live = Object.keys(MODELS).filter((k) => MODELS[k].provider === "workers-ai" && !isRetired(k));
+  assert.equal(Object.keys(p.resolved).length, live.length);
+  assert.ok(!("llama-3.1-8b" in p.resolved) && !("llama-3.1-8b" in p.errors), "retired in May, not probed");
   const m = await (await get(e, "/api/v1/models")).json();
   assert.equal(m.models.find((x) => x.key === "llama-3.1-8b-fast").id, "@cf/meta/llama-3.1-8b-instruct-fast");
   assert.equal(m.probed, true);
@@ -270,4 +274,30 @@ test("routing: health, OpenAPI, 405 and 404", async () => {
   assert.equal((await get(e, "/api/v1/triage")).status, 405);
   assert.equal((await get(e, "/api/v1/nothing")).status, 404);
   assert.equal(await (await get(e, "/")).text(), "asset");
+});
+
+test("a retired model: recorded answers are still served, a fresh call is a clear 410, the probe skips it", async () => {
+  useMock();
+  const ai = spyAI(() => ({ response: "{}" }));
+  const e = env({ AI: ai });
+  // llama-3.1-8b (fp16) was retired on 2026-05-30, so these checks do not depend on today's date
+  const fresh = await post(e, "/api/v1/run", { itemId: NOTICES[0].id, model: "llama-3.1-8b" });
+  assert.equal(fresh.status, 410);
+  const fj = await fresh.json();
+  assert.equal(fj.error, "model_retired");
+  assert.match(fj.message, /recorded answers/);
+  assert.equal(ai.log.length, 0, "no call to a retired model");
+  const key = "x:s:" + SAMPLES_VERSION + ":" + PROMPT_VERSION + ":" + NOTICES[0].id + ":llama-3.1-8b";
+  await e.KV.put(key, JSON.stringify({ model: "@cf/meta/llama-3.1-8b-instruct", modelKey: "llama-3.1-8b", v: { category: "defamation", categoryConfidence: 0.8, facts: [], rejected: [] }, injections: [], costUsd: 0.0001, latencyMs: 900, format: "json_mode" }));
+  const rec = await post(e, "/api/v1/run", { itemId: NOTICES[0].id, model: "llama-3.1-8b" });
+  assert.equal(rec.status, 200);
+  assert.equal((await rec.json()).cached, true);
+  const own = await post(e, "/api/v1/triage", { policy: "llama-3.1-8b>haiku", notice: { text: "Our film is at https://demotube.example/v/x1 without a licence." } }, "9.9.9.9");
+  assert.equal(own.status, 410);
+  const models = await (await get(e, "/api/v1/models")).json();
+  assert.equal(models.models.find((m) => m.key === "llama-3.1-8b").retired, "2026-05-30");
+  assert.equal(models.models.find((m) => m.key === "haiku").retired, null);
+  ai.log.length = 0;
+  await post(e, "/api/v1/probe", {});
+  assert.ok(!ai.log.some((c) => /llama-3.1-8b-instruct$|instruct-awq$/.test(c.id)), "retired ids are not probed");
 });

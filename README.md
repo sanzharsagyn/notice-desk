@@ -79,6 +79,17 @@ Prompt n3 generates both instructions from one schema. It also says that a reque
 
 After n3, one error class remained that no router can see: a real quote with the wrong meaning. Llama 3.1 8B fp8-fast quoted "Bitte löscht das sofort." ("delete it at once") as a good-faith statement. The good-faith statement is a fixed legal formula, so `meaningCheck` in `core.js` now checks its wording. The lab re-checks recorded answers with the current rules, so the effect of a new rule is measured without new model calls.
 
+## Model retirements
+
+Workers AI retires models from its catalogue: Llama 3.1 8B fp16 and AWQ on 30 May 2026; Llama 3.2 1B, Llama 3.2 3B and Llama 3.1 8B fp8 on 20 November 2026. Each model in `models.js` carries its retirement date, and the lab handles it without a rerun:
+
+- From that day the Worker makes no fresh call to the model. `/api/v1/run` still serves its recorded answers; anything that would need a new call returns `410 model_retired`.
+- The probe skips retired ids, and the live policy picker on the lab page leaves out every model with a retirement date.
+- The leaderboard keeps the results with a note that the answers were recorded before the retirement.
+- `eval/run.mjs` keeps a retired model if it has answers recorded with the current prompt and lists it as not measured otherwise.
+
+Cloudflare suggests Gemma 4 26B and Qwen 3.8 27B as the smaller replacements; they are the candidates for the next run.
+
 ## Limits
 
 - Fourteen synthetic notices show failure modes; they do not rank close models. The page shows intervals for that reason.

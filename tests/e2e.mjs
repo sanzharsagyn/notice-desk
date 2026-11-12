@@ -35,7 +35,10 @@ t("recommended point ringed", (await p.$$("#chart svg .pt.rec")).length === 1);
 t("frontier line drawn", (await p.$$("#chart svg polyline.front")).length === 1);
 t("recommendation names a policy", (await p.textContent("#recBody")).length > 40);
 t("escalation reasons listed", (await p.$$("#reasons li")).length === 5);
-t("four quantization variants plus a reading", (await p.$$("#quantGrid .qm")).length === 5);
+const QF = ["llama-3.1-8b", "llama-3.1-8b-fp8", "llama-3.1-8b-awq", "llama-3.1-8b-fast"], measured = QF.filter((k) => res.models[k]).length;
+t("one card per measured quantization variant plus a reading", (await p.$$("#quantGrid .qm")).length === measured + 1, measured);
+if (Object.keys(res.unavailable || {}).some((k) => QF.includes(k))) t("retired variants named in the reading", /retired by Workers AI on 2026-05-30/.test(await p.textContent("#quantRead")));
+t("leaderboard marks models Workers AI retires", (await p.$$("#board .ret")).length === Object.keys(res.models).filter((k) => ["llama-3.2-1b", "llama-3.2-3b", "llama-3.1-8b-fp8"].includes(k)).length);
 t("attack matrix: five attacks", (await p.$$("#attackMatrix tbody tr")).length === 5);
 t("attack matrix: a column per model", (await p.$$("#attackMatrix thead tr:last-child th.m")).length === nModels + 2);
 
@@ -61,6 +64,7 @@ t("inspector: verified facts as chips", (await p.$$("#cols .chip.g")).length >= 
 
 // try your own notice
 const opts = await p.$$eval("#ownPolicy option", (o) => o.map((x) => x.value));
+t("live picker offers no policy with a retiring model", !opts.some((o) => /llama-3\.2-1b|llama-3\.2-3b|llama-3\.1-8b-fp8(>|$)/.test(o)), opts);
 t("policy picker offers the recommended policy first", opts[0] === res.recommended, opts);
 await p.click('[data-ex="inject"]');
 await p.selectOption("#ownPolicy", opts.includes("llama-3.1-8b-fast>haiku") ? "llama-3.1-8b-fast>haiku" : opts[0]);
